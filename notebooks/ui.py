@@ -227,8 +227,8 @@ with tab0:
                         
                         # Aggregate
                         df_merged = pd.concat([df_a_clean, df_b_clean], ignore_index=True)
-                        federated.global_model = federated.aggregate_models_custom(df_merged)
-                        federated.dp_model = federated.apply_differential_privacy(federated.global_model)
+                        global_model = federated.aggregate_models_custom(df_merged)
+                        dp_model = federated.apply_differential_privacy(global_model)
                         
                         # Save models
                         pipeline_model_path = Path(models_dir) / "pipeline_model.pkl"
@@ -403,7 +403,12 @@ with tab2:
                 federated = FederatedFraudDetector(
                     data_dir=data_dir, models_dir=models_dir, noise_sigma=noise_sigma
                 )
-                global_model, dp_model = federated.run_pipeline()
+                result = federated.run_pipeline()
+                if result:
+                    global_model, dp_model = result
+                else:
+                    st.error("❌ No data found. Generate synthetic data first.")
+                    st.stop()
 
                 st.success("✅ Training complete!")
 
