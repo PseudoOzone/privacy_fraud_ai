@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dataset_generator import SyntheticBankDataGenerator
 from federated_training import FederatedFraudDetector
 from fraud_gpt import FraudGPT
+from pii_validator import PIIValidator
 
 # Setup paths (handle both streamlit run from root and from notebooks/)
 project_root = Path(__file__).parent.parent
@@ -41,7 +42,7 @@ data_dir = st.sidebar.text_input("Data Directory", default_data_dir)
 models_dir = st.sidebar.text_input("Models Directory", default_models_dir)
 
 # Tabs
-tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(
+tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
         "🔗 End-to-End Pipeline",
         "🏋️ Generate Data",
@@ -49,6 +50,7 @@ tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(
         "🔐 DP Model Test",
         "📊 Fraud Summary",
         "⚔️ Attack Simulation",
+        "🛡️ PII Check",
     ]
 )
 
@@ -631,6 +633,128 @@ with tab5:
 
             except Exception as e:
                 st.error(f"❌ Error: {e}")
+
+# ============================================================
+# TAB 6: PII CHECK & VALIDATION
+# ============================================================
+with tab6:
+    st.header("🛡️ PII Detection & Removal Validator")
+    st.markdown("Upload real-world datasets to check for PII and see how our system cleans it")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        uploaded_file = st.file_uploader(
+            "📤 Upload your CSV dataset",
+            type="csv",
+            key="pii_check_upload"
+        )
+    
+    if uploaded_file is not None:
+        df_raw = pd.read_csv(uploaded_file)
+        
+        st.subheader("📋 Original Dataset")
+        with st.expander("View raw data (first 10 rows)", expanded=False):
+            st.dataframe(df_raw.head(10), use_container_width=True)
+        
+        # Run PII validator
+        with st.spinner("🔍 Scanning for PII..."):
+            validator = PIIValidator()
+            df_clean, report = validator.remove_pii(df_raw)
+            pii_report_text = validator.generate_pii_report(report)
+        
+        # Display PII Report
+        st.subheader("📊 PII Detection Report")
+        
+        # Risk level color coding
+        risk_colors = {
+            "SAFE": "🟢",
+            "MEDIUM": "🟡", 
+            "HIGH": "🟠",
+            "CRITICAL": "🔴"
+        }
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Rows", f"{report['total_rows']:,}")
+        with col2:
+            st.metric("Total Columns", report['total_columns'])
+        with col3:
+            st.metric("Columns Removed", len(report['columns_removed']))
+        with col4:
+            risk_icon = risk_colors.get(report['risk_level'], "❓")
+            st.metric("Risk Level", f"{risk_icon} {report['risk_level']}")
+        
+        # Detailed report
+        st.markdown("### Detection Results:")
+        if report['pii_detected']:
+            st.error("🚨 **PII DETECTED & WILL BE REMOVED:**")
+            for col, info in report['pii_detected'].items():
+                st.warning(
+                    f"**{col}**: {info['cells_affected']}/{report['total_rows']} cells contain "
+                    f"{', '.join(info['pii_types'])} ({info['percentage']}%)"
+                )
+        else:
+            st.success("✅ **NO PII DETECTED** - Dataset is already clean!")
+        
+        # Safe columns
+        st.success(f"✅ **{len(report['columns_safe'])} Safe Columns Retained ({report['data_retention']}% of data)**")
+        with st.expander("View safe columns"):
+            for i, col in enumerate(report['columns_safe'], 1):
+                st.write(f"{i}. `{col}`")
+        
+        # Cleaned data
+        st.subheader("✨ Cleaned Dataset")
+        st.success(f"Your data will be cleaned to {len(df_clean.columns)} safe columns")
+        
+        with st.expander("View cleaned data (first 10 rows)"):
+            st.dataframe(df_clean.head(10), use_container_width=True)
+        
+        # Statistics
+        st.subheader("📈 Cleaning Statistics")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Data Retention", f"{report['data_retention']}%")
+        with col2:
+            st.metric("Columns Retained", len(report['columns_safe']))
+        with col3:
+            st.metric("Status", "✅ SAFE TO USE")
+        
+        # Full Report
+        st.subheader("📄 Full PII Report")
+        with st.expander("Detailed Report (Text)"):
+            st.code(pii_report_text, language="text")
+        
+        # Download option
+        st.subheader("💾 Download Cleaned Data")
+        csv = df_clean.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Cleaned CSV",
+            data=csv,
+            file_name="cleaned_data_no_pii.csv",
+            mime="text/csv",
+            key="download_clean"
+        )
+        
+        st.info(
+            "✅ **Your data is now safe to use with the federated learning pipeline.**\n\n"
+            "The system will automatically apply this cleaning to datasets in the End-to-End Pipeline tab."
+        )
+    
+    else:
+        st.info(
+            "**How it works:**\n\n"
+            "1️⃣ Upload a CSV with real transaction data\n"
+            "2️⃣ The system scans for Personally Identifiable Information (PII)\n"
+            "3️⃣ Removes sensitive columns: names, emails, phone numbers, SSN, etc.\n"
+            "4️⃣ Reports what was detected and removed\n"
+            "5️⃣ Lets you download the cleaned, safe-to-use data\n\n"
+            "**What is detected:**\n"
+            "• Column names: name, email, phone, account_number, address, SSN, etc.\n"
+            "• Cell patterns: emails, phone numbers, SSNs, credit cards, IP addresses\n"
+            "• Common PII: person names (First Last format)\n\n"
+            "**Your data is NEVER stored or shared.** Processing happens locally."
+        )
 
 # Footer
 st.markdown("---")
